@@ -1,0 +1,21 @@
+apiVersion: v2
+name: mqtt-device-manager
+description: A Helm chart for MQTT Device Manager - Kubernetes operator for MQTT IoT device lifecycle management
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - mqtt
+  - iot
+  - device-manager
+  - kubernetes
+  - operator
+  - crd
+  - zigbee
+  - tasmota
+home: https://github.com/hauke-cloud/mqtt-device-manager
+sources:
+  - https://github.com/hauke-cloud/mqtt-device-manager
+maintainers:
+  - name: hauke-cloud
+    email: contact@hauke.cloud
