@@ -17,21 +17,24 @@ limitations under the License.
 package main
 
 import (
-"flag"
-"os"
+	"context"
+	"flag"
+	"os"
 
-uberzap "go.uber.org/zap"
-"k8s.io/apimachinery/pkg/runtime"
-utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-ctrl "sigs.k8s.io/controller-runtime"
-"sigs.k8s.io/controller-runtime/pkg/healthz"
-metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	uberzap "go.uber.org/zap"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-iotv1alpha1 "github.com/hauke-cloud/kubernetes-iot-api/api/v1alpha1"
-"github.com/hauke-cloud/mqtt-device-manager/internal/controller"
-"github.com/hauke-cloud/mqtt-device-manager/internal/mqtt"
+	iotv1alpha1 "github.com/hauke-cloud/kubernetes-iot-api/api/v1alpha1"
+	"github.com/hauke-cloud/mqtt-device-manager/cmd/crds"
+	"github.com/hauke-cloud/mqtt-device-manager/internal/controller"
+	"github.com/hauke-cloud/mqtt-device-manager/internal/mqtt"
 )
 
 var (
@@ -40,8 +43,9 @@ setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
-utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-utilruntime.Must(iotv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(iotv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 }
 
 func main() {
@@ -91,6 +95,13 @@ LeaderElectionID:       "mqtt-device-manager.hauke.cloud",
 })
 if err != nil {
 setupLog.Error(err, "unable to start manager")
+os.Exit(1)
+}
+
+// Install/Update CRDs before starting controllers
+ctx := context.Background()
+if err := crds.Install(ctx, mgr.GetClient(), zapLog); err != nil {
+setupLog.Error(err, "failed to install CRDs")
 os.Exit(1)
 }
 
