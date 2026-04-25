@@ -28,8 +28,8 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	iotv1alpha1 "github.com/hauke-cloud/kubernetes-iot-api/api/v1alpha1"
 	"github.com/hauke-cloud/mqtt-device-manager/cmd/crds"
@@ -38,8 +38,8 @@ import (
 )
 
 var (
-scheme   = runtime.NewScheme()
-setupLog = ctrl.Log.WithName("setup")
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -49,99 +49,99 @@ func init() {
 }
 
 func main() {
-var metricsAddr string
-var enableLeaderElection bool
-var probeAddr string
-var logLevel string
+	var metricsAddr string
+	var enableLeaderElection bool
+	var probeAddr string
+	var logLevel string
 
-flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-"Enable leader election for controller manager. "+
-"Enabling this will ensure there is only one active controller manager.")
-flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-flag.Parse()
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+	flag.Parse()
 
-// Configure zap logger
-zapLevel := uberzap.InfoLevel
-switch logLevel {
-case "debug":
-zapLevel = uberzap.DebugLevel
-case "warn":
-zapLevel = uberzap.WarnLevel
-case "error":
-zapLevel = uberzap.ErrorLevel
-}
+	// Configure zap logger
+	zapLevel := uberzap.InfoLevel
+	switch logLevel {
+	case "debug":
+		zapLevel = uberzap.DebugLevel
+	case "warn":
+		zapLevel = uberzap.WarnLevel
+	case "error":
+		zapLevel = uberzap.ErrorLevel
+	}
 
-zapConfig := uberzap.NewProductionConfig()
-zapConfig.Level = uberzap.NewAtomicLevelAt(zapLevel)
-zapLog, err := zapConfig.Build()
-if err != nil {
-setupLog.Error(err, "unable to set up zap logger")
-os.Exit(1)
-}
-defer zapLog.Sync()
+	zapConfig := uberzap.NewProductionConfig()
+	zapConfig.Level = uberzap.NewAtomicLevelAt(zapLevel)
+	zapLog, err := zapConfig.Build()
+	if err != nil {
+		setupLog.Error(err, "unable to set up zap logger")
+		os.Exit(1)
+	}
+	defer zapLog.Sync()
 
-ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zap.Options{})))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zap.Options{})))
 
-mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-Scheme: scheme,
-Metrics: metricsserver.Options{
-BindAddress: metricsAddr,
-},
-HealthProbeBindAddress: probeAddr,
-LeaderElection:         enableLeaderElection,
-LeaderElectionID:       "mqtt-device-manager.hauke.cloud",
-})
-if err != nil {
-setupLog.Error(err, "unable to start manager")
-os.Exit(1)
-}
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr,
+		},
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "mqtt-device-manager.hauke.cloud",
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
 
-// Install/Update CRDs before starting controllers
-ctx := context.Background()
-if err := crds.Install(ctx, mgr.GetClient(), zapLog); err != nil {
-setupLog.Error(err, "failed to install CRDs")
-os.Exit(1)
-}
+	// Install/Update CRDs before starting controllers
+	ctx := context.Background()
+	if err := crds.Install(ctx, zapLog); err != nil {
+		setupLog.Error(err, "failed to install CRDs")
+		os.Exit(1)
+	}
 
-// Create MQTT manager
-mqttManager := mqtt.NewManager(mgr.GetClient(), zapLog.With(uberzap.String("component", "mqtt")))
+	// Create MQTT manager
+	mqttManager := mqtt.NewManager(mgr.GetClient(), zapLog.With(uberzap.String("component", "mqtt")))
 
-// Setup MQTTBridge controller
-if err = (&controller.MQTTBridgeReconciler{
-Client:      mgr.GetClient(),
-Scheme:      mgr.GetScheme(),
-Log:         zapLog.With(uberzap.String("controller", "MQTTBridge")),
-MQTTManager: mqttManager,
-}).SetupWithManager(mgr); err != nil {
-setupLog.Error(err, "unable to create controller", "controller", "MQTTBridge")
-os.Exit(1)
-}
+	// Setup MQTTBridge controller
+	if err = (&controller.MQTTBridgeReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Log:         zapLog.With(uberzap.String("controller", "MQTTBridge")),
+		MQTTManager: mqttManager,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MQTTBridge")
+		os.Exit(1)
+	}
 
-// Setup Device controller
-if err = (&controller.DeviceReconciler{
-Client:      mgr.GetClient(),
-Scheme:      mgr.GetScheme(),
-Log:         zapLog.With(uberzap.String("controller", "Device")),
-MQTTManager: mqttManager,
-}).SetupWithManager(mgr); err != nil {
-setupLog.Error(err, "unable to create controller", "controller", "Device")
-os.Exit(1)
-}
+	// Setup Device controller
+	if err = (&controller.DeviceReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Log:         zapLog.With(uberzap.String("controller", "Device")),
+		MQTTManager: mqttManager,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Device")
+		os.Exit(1)
+	}
 
-if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-setupLog.Error(err, "unable to set up health check")
-os.Exit(1)
-}
-if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-setupLog.Error(err, "unable to set up ready check")
-os.Exit(1)
-}
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
 
-setupLog.Info("starting manager")
-if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-setupLog.Error(err, "problem running manager")
-os.Exit(1)
-}
+	setupLog.Info("starting manager")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
 }
