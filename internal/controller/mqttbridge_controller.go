@@ -38,6 +38,7 @@ type MQTTBridgeReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=iot.hauke.cloud,resources=mqttbridges,verbs=get;list;watch
+// +kubebuilder:rbac:groups=iot.hauke.cloud,resources=mqttbridges/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile ensures mqtt-device-manager is connected to MQTT bridges

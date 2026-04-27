@@ -32,12 +32,17 @@ import (
 	iotv1alpha1 "github.com/hauke-cloud/kubernetes-iot-api/api/v1alpha1"
 )
 
+const (
+	deviceTypeTasmota = "tasmota"
+)
+
 // Manager handles MQTT connections to bridges for device management
 type Manager struct {
-	client  client.Client
-	log     *zap.Logger
-	bridges map[string]*BridgeConnection
-	mu      sync.RWMutex
+	client       client.Client
+	log          *zap.Logger
+	bridges      map[string]*BridgeConnection
+	mu           sync.RWMutex
+	stateHandler *StateHandler
 }
 
 // BridgeConnection represents a single MQTT bridge connection
@@ -51,11 +56,13 @@ type BridgeConnection struct {
 
 // NewManager creates a new MQTT manager
 func NewManager(c client.Client, log *zap.Logger) *Manager {
-	return &Manager{
+	m := &Manager{
 		client:  c,
 		log:     log,
 		bridges: make(map[string]*BridgeConnection),
 	}
+	m.stateHandler = NewStateHandler(c, log.With(zap.String("handler", "state")))
+	return m
 }
 
 // Connect establishes connection to an MQTT bridge
@@ -122,15 +129,19 @@ func (m *Manager) Connect(ctx context.Context, bridge *iotv1alpha1.MQTTBridge) e
 		opts.AddBroker(broker)
 	}
 
+	bridgeConn := &BridgeConnection{
+		bridge: bridge,
+	}
+
 	// Connection handlers
+	// Note: We use context.Background() here because the handlers are called on reconnect
+	// and the original ctx might be canceled by then
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
-		m.log.Info("Connected to MQTT broker", zap.String("bridge", key))
+		m.onConnect(context.Background(), bridgeConn)
 	})
 
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
-		m.log.Warn("Lost connection to MQTT broker",
-			zap.String("bridge", key),
-			zap.Error(err))
+		m.onConnectionLost(bridgeConn, err)
 	})
 
 	// Create and connect client
@@ -140,18 +151,134 @@ func (m *Manager) Connect(ctx context.Context, bridge *iotv1alpha1.MQTTBridge) e
 	}
 
 	// Store connection
-	m.bridges[key] = &BridgeConnection{
-		bridge:     bridge,
-		mqttClient: mqttClient,
-		connected:  true,
-		lastSeen:   time.Now(),
-	}
+	bridgeConn.mqttClient = mqttClient
+	bridgeConn.connected = true
+	bridgeConn.lastSeen = time.Now()
+	m.bridges[key] = bridgeConn
 
 	m.log.Info("Successfully connected to MQTT bridge",
 		zap.String("bridge", key),
 		zap.String("deviceType", bridge.Spec.DeviceType))
 
 	return nil
+}
+
+// onConnect is called when connection to MQTT broker is established
+func (m *Manager) onConnect(ctx context.Context, conn *BridgeConnection) {
+	conn.mu.Lock()
+	conn.connected = true
+	conn.lastSeen = time.Now()
+	conn.mu.Unlock()
+
+	m.log.Info("MQTT connection established", zap.String("bridge", conn.bridge.Name))
+
+	// Subscribe to state topics only
+	m.subscribeToStateTopics(ctx, conn)
+}
+
+// onConnectionLost is called when connection to MQTT broker is lost
+func (m *Manager) onConnectionLost(conn *BridgeConnection, err error) {
+	conn.mu.Lock()
+	conn.connected = false
+	conn.mu.Unlock()
+
+	m.log.Error("MQTT connection lost",
+		zap.String("bridge", conn.bridge.Name),
+		zap.Error(err))
+}
+
+// subscribeToStateTopics subscribes only to topics with type "state"
+func (m *Manager) subscribeToStateTopics(ctx context.Context, conn *BridgeConnection) {
+	// Check if Topics are configured
+	if len(conn.bridge.Spec.Topics) > 0 {
+		m.log.Info("Checking topics for state subscriptions",
+			zap.String("bridge", conn.bridge.Name),
+			zap.Int("topicCount", len(conn.bridge.Spec.Topics)))
+
+		for _, topicSub := range conn.bridge.Spec.Topics {
+			// Only subscribe to state type topics
+			if topicSub.Type == "state" {
+				m.subscribeToTopic(ctx, conn, &topicSub)
+			} else {
+				m.log.Debug("Skipping non-state topic",
+					zap.String("topic", topicSub.Topic),
+					zap.String("type", topicSub.Type))
+			}
+		}
+		return
+	}
+
+	// Fallback: If no topics configured and device type is Tasmota, subscribe to default STATE topic
+	if conn.bridge.Spec.DeviceType == deviceTypeTasmota {
+		bridgeName := conn.bridge.Spec.BridgeName
+		devicePattern := "+"
+		if bridgeName != "" {
+			devicePattern = bridgeName
+		}
+
+		topic := fmt.Sprintf("stat/%s/STATE", devicePattern)
+		topicSub := iotv1alpha1.TopicSubscription{
+			Topic: topic,
+			Type:  "state",
+		}
+		m.log.Info("Using default Tasmota STATE topic",
+			zap.String("topic", topic))
+		m.subscribeToTopic(ctx, conn, &topicSub)
+	}
+}
+
+// subscribeToTopic subscribes to a single MQTT topic
+func (m *Manager) subscribeToTopic(ctx context.Context, conn *BridgeConnection, topicSub *iotv1alpha1.TopicSubscription) {
+	// Check if client is still connected
+	if conn.mqttClient == nil || !conn.mqttClient.IsConnected() {
+		m.log.Debug("MQTT client not connected, skipping subscription",
+			zap.String("topic", topicSub.Topic))
+		return
+	}
+
+	qos := byte(0)
+	if topicSub.QoS != nil {
+		qos = byte(*topicSub.QoS)
+	}
+
+	handler := func(mqttClient mqtt.Client, msg mqtt.Message) {
+		// Use context.Background() for message handlers as they run asynchronously
+		m.handleMessage(context.Background(), conn, topicSub, msg)
+	}
+
+	if token := conn.mqttClient.Subscribe(topicSub.Topic, qos, handler); token.Wait() && token.Error() != nil {
+		m.log.Error("Failed to subscribe to topic",
+			zap.String("topic", topicSub.Topic),
+			zap.String("type", topicSub.Type),
+			zap.Error(token.Error()))
+	} else {
+		m.log.Info("Subscribed to topic",
+			zap.String("topic", topicSub.Topic),
+			zap.String("type", topicSub.Type),
+			zap.Int("qos", int(qos)))
+	}
+}
+
+// handleMessage processes incoming MQTT state messages
+func (m *Manager) handleMessage(ctx context.Context, conn *BridgeConnection, topicSub *iotv1alpha1.TopicSubscription, msg mqtt.Message) {
+	m.log.Debug("Received state message",
+		zap.String("topic", msg.Topic()),
+		zap.String("type", topicSub.Type),
+		zap.String("bridge", conn.bridge.Name),
+		zap.Int("payloadSize", len(msg.Payload())))
+
+	// Handle state messages for device type
+	switch conn.bridge.Spec.DeviceType {
+	case deviceTypeTasmota:
+		if err := m.stateHandler.HandleMessage(ctx, conn.bridge.Namespace, conn.bridge.Name, msg.Topic(), msg.Payload()); err != nil {
+			m.log.Error("Failed to handle state message",
+				zap.String("topic", msg.Topic()),
+				zap.Error(err))
+		}
+	default:
+		m.log.Debug("Device type not supported for state handling",
+			zap.String("deviceType", conn.bridge.Spec.DeviceType))
+	}
 }
 
 // Disconnect closes connection to an MQTT bridge

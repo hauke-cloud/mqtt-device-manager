@@ -44,6 +44,7 @@ rules:
   - iot.hauke.cloud
   resources:
   - devices/status
+  - mqttbridges/status
   verbs:
   - get
   - patch
