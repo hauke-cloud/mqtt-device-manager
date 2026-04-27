@@ -4,7 +4,7 @@ go 1.25.3
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
-	github.com/hauke-cloud/kubernetes-iot-api v0.0.4
+	github.com/hauke-cloud/kubernetes-iot-api v0.0.8
 	go.uber.org/zap v1.27.0
 	k8s.io/api v0.35.0
 	k8s.io/apiextensions-apiserver v0.35.0

@@ -28,7 +28,6 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role paths="./..." output:rbac:artifacts:config=config/rbac
 	@echo "Generating CRDs from kubernetes-iot-api Go module..."
 	@rm -f config/crd/iot.hauke.cloud_*.yaml
 	@mkdir -p config/crd/tmp
