@@ -177,8 +177,8 @@ func (m *Manager) onConnect(ctx context.Context, conn *BridgeConnection) {
 
 	m.log.Info("MQTT connection established", zap.String("bridge", conn.bridge.Name))
 
-	// Subscribe to state topics only
-	m.subscribeToStateTopics(ctx, conn)
+	// Subscribe to topics
+	m.subscribeToTopics(ctx, conn)
 
 	// Start periodic device discovery for Tasmota bridges
 	if conn.bridge.Spec.DeviceType == deviceTypeTasmota {
@@ -200,20 +200,20 @@ func (m *Manager) onConnectionLost(conn *BridgeConnection, err error) {
 		zap.Error(err))
 }
 
-// subscribeToStateTopics subscribes only to topics with type "state"
-func (m *Manager) subscribeToStateTopics(ctx context.Context, conn *BridgeConnection) {
+// subscribeToTopics subscribes to all relevant topics for device management
+func (m *Manager) subscribeToTopics(ctx context.Context, conn *BridgeConnection) {
 	// Check if Topics are configured
 	if len(conn.bridge.Spec.Topics) > 0 {
-		m.log.Info("Checking topics for state subscriptions",
+		m.log.Info("Checking topics for subscriptions",
 			zap.String("bridge", conn.bridge.Name),
 			zap.Int("topicCount", len(conn.bridge.Spec.Topics)))
 
 		for _, topicSub := range conn.bridge.Spec.Topics {
-			// Only subscribe to state type topics
-			if topicSub.Type == "state" {
+			// Subscribe to state, status, and result type topics for device management
+			if topicSub.Type == "state" || topicSub.Type == "status" || topicSub.Type == "result" {
 				m.subscribeToTopic(ctx, conn, &topicSub)
 			} else {
-				m.log.Debug("Skipping non-state topic",
+				m.log.Debug("Skipping non-device-management topic",
 					zap.String("topic", topicSub.Topic),
 					zap.String("type", topicSub.Type))
 			}
@@ -221,7 +221,7 @@ func (m *Manager) subscribeToStateTopics(ctx context.Context, conn *BridgeConnec
 		return
 	}
 
-	// Fallback: If no topics configured and device type is Tasmota, subscribe to default STATE topic
+	// Fallback: If no topics configured and device type is Tasmota, subscribe to default topics
 	if conn.bridge.Spec.DeviceType == deviceTypeTasmota {
 		bridgeName := conn.bridge.Spec.BridgeName
 		devicePattern := "+"
@@ -229,14 +229,23 @@ func (m *Manager) subscribeToStateTopics(ctx context.Context, conn *BridgeConnec
 			devicePattern = bridgeName
 		}
 
-		topic := fmt.Sprintf("stat/%s/STATE", devicePattern)
-		topicSub := iotv1alpha1.TopicSubscription{
-			Topic: topic,
+		// Subscribe to STATE topic for bridge status
+		stateTopic := fmt.Sprintf("stat/%s/STATE", devicePattern)
+		m.subscribeToTopic(ctx, conn, &iotv1alpha1.TopicSubscription{
+			Topic: stateTopic,
 			Type:  "state",
-		}
-		m.log.Info("Using default Tasmota STATE topic",
-			zap.String("topic", topic))
-		m.subscribeToTopic(ctx, conn, &topicSub)
+		})
+		m.log.Info("Subscribed to default Tasmota STATE topic",
+			zap.String("topic", stateTopic))
+
+		// Subscribe to RESULT topic for command responses (ZbStatus1, ZbStatus3)
+		resultTopic := fmt.Sprintf("stat/%s/RESULT", devicePattern)
+		m.subscribeToTopic(ctx, conn, &iotv1alpha1.TopicSubscription{
+			Topic: resultTopic,
+			Type:  "result",
+		})
+		m.log.Info("Subscribed to default Tasmota RESULT topic for discovery",
+			zap.String("topic", resultTopic))
 	}
 }
 
