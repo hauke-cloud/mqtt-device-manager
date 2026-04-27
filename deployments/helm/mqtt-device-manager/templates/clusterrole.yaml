@@ -7,6 +7,14 @@ metadata:
     {{- include "mqtt-device-manager.labels" . | nindent 4 }}
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - apiextensions.k8s.io
   resources:
   - customresourcedefinitions
