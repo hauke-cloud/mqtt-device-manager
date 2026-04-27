@@ -48,11 +48,13 @@ type Manager struct {
 
 // BridgeConnection represents a single MQTT bridge connection
 type BridgeConnection struct {
-	bridge     *iotv1alpha1.MQTTBridge
-	mqttClient mqtt.Client
-	connected  bool
-	lastSeen   time.Time
-	mu         sync.RWMutex
+	bridge          *iotv1alpha1.MQTTBridge
+	mqttClient      mqtt.Client
+	connected       bool
+	lastSeen        time.Time
+	mu              sync.RWMutex
+	discoveryTicker *time.Ticker
+	stopDiscovery   chan struct{}
 }
 
 // NewManager creates a new MQTT manager
@@ -132,7 +134,8 @@ func (m *Manager) Connect(ctx context.Context, bridge *iotv1alpha1.MQTTBridge) e
 	}
 
 	bridgeConn := &BridgeConnection{
-		bridge: bridge,
+		bridge:        bridge,
+		stopDiscovery: make(chan struct{}),
 	}
 
 	// Connection handlers
@@ -176,6 +179,11 @@ func (m *Manager) onConnect(ctx context.Context, conn *BridgeConnection) {
 
 	// Subscribe to state topics only
 	m.subscribeToStateTopics(ctx, conn)
+
+	// Start periodic device discovery for Tasmota bridges
+	if conn.bridge.Spec.DeviceType == deviceTypeTasmota {
+		m.startPeriodicDiscovery(conn)
+	}
 }
 
 // onConnectionLost is called when connection to MQTT broker is lost
@@ -183,6 +191,9 @@ func (m *Manager) onConnectionLost(conn *BridgeConnection, err error) {
 	conn.mu.Lock()
 	conn.connected = false
 	conn.mu.Unlock()
+
+	// Stop periodic discovery
+	m.stopPeriodicDiscovery(conn)
 
 	m.log.Error("MQTT connection lost",
 		zap.String("bridge", conn.bridge.Name),
@@ -303,6 +314,9 @@ func (m *Manager) Disconnect(namespace, name string) {
 	key := fmt.Sprintf("%s/%s", namespace, name)
 
 	if conn, ok := m.bridges[key]; ok {
+		// Stop periodic discovery
+		m.stopPeriodicDiscovery(conn)
+
 		if conn.mqttClient != nil && conn.mqttClient.IsConnected() {
 			m.log.Info("Disconnecting from MQTT bridge", zap.String("bridge", key))
 			conn.mqttClient.Disconnect(250)
@@ -361,4 +375,66 @@ func (m *Manager) TriggerDeviceDiscovery(namespace, bridgeName string) error {
 	}
 
 	return nil
+}
+
+// startPeriodicDiscovery starts a periodic device discovery for a bridge
+func (m *Manager) startPeriodicDiscovery(conn *BridgeConnection) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	// Stop any existing discovery ticker
+	if conn.discoveryTicker != nil {
+		conn.discoveryTicker.Stop()
+	}
+
+	// Create a new ticker for 30 seconds
+	conn.discoveryTicker = time.NewTicker(30 * time.Second)
+
+	m.log.Info("Starting periodic device discovery",
+		zap.String("bridge", conn.bridge.Name),
+		zap.String("interval", "30s"))
+
+	// Run discovery in a goroutine
+	go func() {
+		// Trigger initial discovery immediately
+		if err := m.TriggerDeviceDiscovery(conn.bridge.Namespace, conn.bridge.Name); err != nil {
+			m.log.Error("Failed to trigger initial device discovery",
+				zap.String("bridge", conn.bridge.Name),
+				zap.Error(err))
+		}
+
+		// Periodic discovery
+		for {
+			select {
+			case <-conn.discoveryTicker.C:
+				if err := m.TriggerDeviceDiscovery(conn.bridge.Namespace, conn.bridge.Name); err != nil {
+					m.log.Error("Failed to trigger periodic device discovery",
+						zap.String("bridge", conn.bridge.Name),
+						zap.Error(err))
+				}
+			case <-conn.stopDiscovery:
+				m.log.Info("Stopping periodic device discovery",
+					zap.String("bridge", conn.bridge.Name))
+				return
+			}
+		}
+	}()
+}
+
+// stopPeriodicDiscovery stops the periodic device discovery for a bridge
+func (m *Manager) stopPeriodicDiscovery(conn *BridgeConnection) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.discoveryTicker != nil {
+		conn.discoveryTicker.Stop()
+		conn.discoveryTicker = nil
+	}
+
+	// Signal the goroutine to stop
+	select {
+	case conn.stopDiscovery <- struct{}{}:
+	default:
+		// Channel already closed or no goroutine waiting
+	}
 }

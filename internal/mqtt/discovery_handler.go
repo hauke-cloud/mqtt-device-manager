@@ -160,7 +160,7 @@ func (h *DiscoveryHandler) createOrUpdateDevice(ctx context.Context, namespace, 
 	deviceList := &iotv1alpha1.DeviceList{}
 	if err := h.client.List(ctx, deviceList, client.InNamespace(namespace),
 		client.MatchingLabels{
-			"mqtt.hauke.cloud/ieee-addr": sanitizeLabel(ieeeAddr),
+			"iot.hauke.cloud/ieee-addr": sanitizeLabel(ieeeAddr),
 		}); err != nil {
 		return fmt.Errorf("failed to list devices: %w", err)
 	}
@@ -273,9 +273,9 @@ func (h *DiscoveryHandler) createNewDevice(ctx context.Context, namespace, bridg
 			Name:      deviceName,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"mqtt.hauke.cloud/bridge":      bridgeName,
-				"mqtt.hauke.cloud/device-type": "tasmota-zigbee",
-				"mqtt.hauke.cloud/ieee-addr":   sanitizeLabel(ieeeAddr),
+				"iot.hauke.cloud/bridge":      bridgeName,
+				"iot.hauke.cloud/device-type": "tasmota-zigbee",
+				"iot.hauke.cloud/ieee-addr":   sanitizeLabel(ieeeAddr),
 			},
 		},
 		Spec: iotv1alpha1.DeviceSpec{
