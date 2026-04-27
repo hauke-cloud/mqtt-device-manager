@@ -20,6 +20,7 @@ rules:
   - io.hauke.cloud
   resources:
   - mqttbridges
+  - devices
   verbs:
   - create
   - delete
@@ -32,12 +33,14 @@ rules:
   - iot.hauke.cloud
   resources:
   - mqttbridges/finalizers
+  - devices/finalizers
   verbs:
   - update
 - apiGroups:
   - iot.hauke.cloud
   resources:
   - mqttbridges/status
+  - devices/status
   verbs:
   - get
   - patch
