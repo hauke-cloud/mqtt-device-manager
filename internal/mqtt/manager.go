@@ -38,11 +38,12 @@ const (
 
 // Manager handles MQTT connections to bridges for device management
 type Manager struct {
-	client       client.Client
-	log          *zap.Logger
-	bridges      map[string]*BridgeConnection
-	mu           sync.RWMutex
-	stateHandler *StateHandler
+	client           client.Client
+	log              *zap.Logger
+	bridges          map[string]*BridgeConnection
+	mu               sync.RWMutex
+	stateHandler     *StateHandler
+	discoveryHandler *DiscoveryHandler
 }
 
 // BridgeConnection represents a single MQTT bridge connection
@@ -62,6 +63,7 @@ func NewManager(c client.Client, log *zap.Logger) *Manager {
 		bridges: make(map[string]*BridgeConnection),
 	}
 	m.stateHandler = NewStateHandler(c, log.With(zap.String("handler", "state")))
+	m.discoveryHandler = NewDiscoveryHandler(c, log.With(zap.String("handler", "discovery")), m)
 	return m
 }
 
@@ -267,13 +269,25 @@ func (m *Manager) handleMessage(ctx context.Context, conn *BridgeConnection, top
 		zap.String("bridge", conn.bridge.Name),
 		zap.Int("payloadSize", len(msg.Payload())))
 
-	// Handle state messages for device type
+	// Handle messages based on topic type
 	switch conn.bridge.Spec.DeviceType {
 	case deviceTypeTasmota:
-		if err := m.stateHandler.HandleMessage(ctx, conn.bridge.Namespace, conn.bridge.Name, msg.Topic(), msg.Payload()); err != nil {
-			m.log.Error("Failed to handle state message",
-				zap.String("topic", msg.Topic()),
-				zap.Error(err))
+		// Route status/result messages to discovery handler (ZbStatus1, ZbStatus3)
+		if topicSub.Type == "status" || topicSub.Type == "result" {
+			if err := m.discoveryHandler.HandleMessage(ctx, conn.bridge.Namespace, conn.bridge.Name, msg.Topic(), msg.Payload()); err != nil {
+				m.log.Error("Failed to handle discovery message",
+					zap.String("topic", msg.Topic()),
+					zap.Error(err))
+			}
+		}
+
+		// Also route state messages to state handler for bridge status updates
+		if topicSub.Type == "state" {
+			if err := m.stateHandler.HandleMessage(ctx, conn.bridge.Namespace, conn.bridge.Name, msg.Topic(), msg.Payload()); err != nil {
+				m.log.Error("Failed to handle state message",
+					zap.String("topic", msg.Topic()),
+					zap.Error(err))
+			}
 		}
 	default:
 		m.log.Debug("Device type not supported for state handling",
@@ -330,6 +344,21 @@ func (m *Manager) PublishTasmotaCommand(namespace, bridgeName, command, payload 
 		zap.String("topic", topic),
 		zap.String("payload", payload),
 		zap.String("bridge", bridgeName))
+
+	return nil
+}
+
+// TriggerDeviceDiscovery triggers device discovery for a Tasmota bridge
+// Sends ZbStatus1 command to get list of devices
+func (m *Manager) TriggerDeviceDiscovery(namespace, bridgeName string) error {
+	m.log.Info("Triggering device discovery",
+		zap.String("namespace", namespace),
+		zap.String("bridge", bridgeName))
+
+	// Send ZbStatus1 command to discover devices
+	if err := m.PublishTasmotaCommand(namespace, bridgeName, "ZbStatus1", ""); err != nil {
+		return fmt.Errorf("failed to trigger discovery: %w", err)
+	}
 
 	return nil
 }
