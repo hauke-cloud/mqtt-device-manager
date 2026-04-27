@@ -22,8 +22,8 @@ import (
 	iotv1alpha1 "github.com/hauke-cloud/kubernetes-iot-api/api/v1alpha1"
 )
 
-// TestStateTopicFiltering verifies that only "state" type topics are processed
-func TestStateTopicFiltering(t *testing.T) {
+// TestTopicFiltering verifies that device management topics are processed correctly
+func TestTopicFiltering(t *testing.T) {
 	tests := []struct {
 		name         string
 		topicType    string
@@ -35,18 +35,18 @@ func TestStateTopicFiltering(t *testing.T) {
 			shouldAccept: true,
 		},
 		{
+			name:         "result topic should be accepted for discovery",
+			topicType:    "result",
+			shouldAccept: true,
+		},
+		{
+			name:         "status topic should be accepted for discovery",
+			topicType:    "status",
+			shouldAccept: true,
+		},
+		{
 			name:         "telemetry topic should be rejected",
 			topicType:    "telemetry",
-			shouldAccept: false,
-		},
-		{
-			name:         "result topic should be rejected",
-			topicType:    "result",
-			shouldAccept: false,
-		},
-		{
-			name:         "status topic should be rejected",
-			topicType:    "status",
 			shouldAccept: false,
 		},
 		{
@@ -63,14 +63,14 @@ func TestStateTopicFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the filtering logic from subscribeToStateTopics
+			// Simulate the filtering logic from subscribeToTopics
 			topicSub := iotv1alpha1.TopicSubscription{
 				Topic: "test/topic",
 				Type:  tt.topicType,
 			}
 
-			// Check if the topic type is "state"
-			accepted := topicSub.Type == "state"
+			// Check if the topic type is accepted for device management
+			accepted := topicSub.Type == "state" || topicSub.Type == "status" || topicSub.Type == "result"
 
 			if accepted != tt.shouldAccept {
 				t.Errorf("Topic type %q: expected accept=%v, got accept=%v",
