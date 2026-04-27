@@ -7,9 +7,19 @@ metadata:
     {{- include "mqtt-device-manager.labels" . | nindent 4 }}
 rules:
 - apiGroups:
-  - database.hauke.cloud
+  - apiextensions.k8s.io
   resources:
-  - databases
+  - customresourcedefinitions
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - patch
+- apiGroups:
+  - io.hauke.cloud
+  resources:
+  - mqttbridges
   verbs:
   - create
   - delete
@@ -19,27 +29,19 @@ rules:
   - update
   - watch
 - apiGroups:
-  - database.hauke.cloud
+  - iot.hauke.cloud
   resources:
-  - databases/finalizers
+  - mqttbridges/finalizers
   verbs:
   - update
 - apiGroups:
-  - database.hauke.cloud
+  - iot.hauke.cloud
   resources:
-  - databases/status
+  - mqttbridges/status
   verbs:
   - get
   - patch
   - update
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
-  - watch
 {{- with .Values.rbac.rules }}
 {{- toYaml . | nindent 0 }}
 {{- end }}
