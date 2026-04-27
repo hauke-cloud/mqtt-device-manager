@@ -33,6 +33,9 @@ import (
 )
 
 // Manager handles MQTT connections to bridges for device management
+// This manager publishes commands to control devices via MQTT.
+// For listening to state topics, subscribeToStateTopics can be implemented
+// to use bridge.Spec.StateTopics instead of bridge.Spec.Topics or SensorTopics.
 type Manager struct {
 	client  client.Client
 	log     *zap.Logger
