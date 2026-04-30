@@ -74,13 +74,15 @@ type ZbNameResult struct {
 }
 
 // sanitizeDeviceName converts an IEEE address to a valid Kubernetes resource name
-func sanitizeDeviceName(ieeeAddr string) string {
+func sanitizeDeviceName(bridgeName, ieeeAddr string) string {
 	// Remove "0x" prefix if present
 	name := strings.TrimPrefix(strings.ToLower(ieeeAddr), "0x")
 	// Replace any non-alphanumeric characters
 	name = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(name, "-")
-	// Ensure it starts with alphanumeric
-	name = "device-" + name
+	// Sanitize bridge name for use in device name
+	sanitizedBridge := regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(strings.ToLower(bridgeName), "-")
+	// Construct name with bridge prefix
+	name = "device-" + sanitizedBridge + "-" + name
 	// Truncate if too long (max 253 characters for k8s names)
 	if len(name) > 253 {
 		name = name[:253]

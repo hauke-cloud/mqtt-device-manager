@@ -148,7 +148,7 @@ func (h *DiscoveryHandler) createOrUpdateDevice(ctx context.Context, namespace, 
 	friendlyName := strings.TrimSpace(device.Name)
 
 	// Generate Device CR name from full IEEE address
-	deviceName := sanitizeDeviceName(ieeeAddr)
+	deviceName := sanitizeDeviceName(bridgeName, ieeeAddr)
 
 	h.log.Debug("Creating/updating device from ZbStatus3",
 		zap.String("ieeeAddr", ieeeAddr),
