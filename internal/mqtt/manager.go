@@ -283,7 +283,7 @@ func (m *Manager) subscribeToTopic(ctx context.Context, conn *BridgeConnection, 
 
 // handleMessage processes incoming MQTT state messages
 func (m *Manager) handleMessage(ctx context.Context, conn *BridgeConnection, topicSub *iotv1alpha1.TopicSubscription, msg mqtt.Message) {
-	m.log.Debug("Received state message",
+	m.log.Info("Received MQTT message",
 		zap.String("topic", msg.Topic()),
 		zap.String("type", topicSub.Type),
 		zap.String("bridge", conn.bridge.Name),

@@ -54,10 +54,16 @@ func NewDiscoveryHandler(c client.Client, log *zap.Logger, mqttManager *Manager)
 
 // HandleMessage processes discovery messages (ZbStatus1 and ZbStatus3)
 func (h *DiscoveryHandler) HandleMessage(ctx context.Context, namespace, bridgeName, topic string, payload []byte) error {
+	h.log.Debug("Processing discovery message",
+		zap.String("topic", topic),
+		zap.String("bridge", bridgeName),
+		zap.String("payload", string(payload)))
+
 	var msg StatusMessage
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		h.log.Error("Failed to parse discovery message",
 			zap.String("topic", topic),
+			zap.String("payload", string(payload)),
 			zap.Error(err))
 		return err
 	}
@@ -71,6 +77,12 @@ func (h *DiscoveryHandler) HandleMessage(ctx context.Context, namespace, bridgeN
 	if len(msg.ZbStatus3) > 0 {
 		return h.handleZbStatus3(ctx, namespace, bridgeName, msg.ZbStatus3)
 	}
+
+	// Log when message doesn't contain expected discovery data
+	h.log.Debug("Discovery message does not contain ZbStatus1 or ZbStatus3",
+		zap.String("topic", topic),
+		zap.String("bridge", bridgeName),
+		zap.String("payload", string(payload)))
 
 	return nil
 }
