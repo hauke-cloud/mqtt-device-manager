@@ -119,6 +119,9 @@ func (m *Manager) Connect(ctx context.Context, bridge *iotv1alpha1.MQTTBridge) e
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
 	opts.SetMaxReconnectInterval(1 * time.Minute)
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetPingTimeout(10 * time.Second)
+	opts.SetCleanSession(false) // Maintain subscriptions across reconnects
 
 	// TLS configuration
 	if bridge.Spec.TLS != nil && bridge.Spec.TLS.Enabled {
@@ -175,7 +178,9 @@ func (m *Manager) onConnect(ctx context.Context, conn *BridgeConnection) {
 	conn.lastSeen = time.Now()
 	conn.mu.Unlock()
 
-	m.log.Info("MQTT connection established", zap.String("bridge", conn.bridge.Name))
+	m.log.Info("MQTT connection established",
+		zap.String("bridge", conn.bridge.Name),
+		zap.String("component", "mqtt"))
 
 	// Subscribe to topics
 	m.subscribeToTopics(ctx, conn)
@@ -264,6 +269,10 @@ func (m *Manager) subscribeToTopic(ctx context.Context, conn *BridgeConnection, 
 	}
 
 	handler := func(mqttClient mqtt.Client, msg mqtt.Message) {
+		m.log.Info("MQTT message handler called",
+			zap.String("topic", msg.Topic()),
+			zap.String("type", topicSub.Type),
+			zap.Int("payloadSize", len(msg.Payload())))
 		// Use context.Background() for message handlers as they run asynchronously
 		m.handleMessage(context.Background(), conn, topicSub, msg)
 	}
